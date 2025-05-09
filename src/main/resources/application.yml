@@ -1,0 +1,59 @@
+spring:
+  application:
+    name: CustomAI
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 100MB
+      max-request-size: 100MB
+      file-size-threshold: 20MB
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/customai?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456789
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    druid:
+      validation-query: SELECT 1 from DUAL
+
+  jpa:
+    database-platform: org.hibernate.dialect.MySQL8Dialect
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+server:
+  port: 8113
+
+# AI ??
+dashscope:
+  api:
+    key: sk-2e1689fecc8140bba72841d87c7b3a25
+
+chroma:
+  url: http://localhost:8677
+
+mybatis:
+  type-aliases-package: io.g8.customai.user.entity
+
+jwt:
+  secret: sk-2e1689fecc8140bba72841d87c7b3a21
+  expiration: 864000
+
+logging:
+  level:
+    # ???????????????
+    io.g8.customai.user.controller: debug
+
+    # ?????
+    io.g8.customai.user.service: debug
+
+    # Mapper ?????MyBatis?
+    io.g8.customai.user.mapper: trace
+
+    # Spring Boot ???????
+    org.springframework.web: debug
+    org.springframework.transaction: debug
+    org.springframework.data.jpa: debug
+    org.hibernate.SQL: debug
+    org.hibernate.type.descriptor.sql.BasicBinder: trace

@@ -1,0 +1,1 @@
+chroma run --path D:\CustomAI\chroma --port 8677
