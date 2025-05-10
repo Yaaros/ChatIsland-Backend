@@ -1,4 +1,4 @@
-package io.g8.customai.user.entity;
+package io.g8.customai.user.DTO;
 
 import lombok.Getter;
 import lombok.Setter;

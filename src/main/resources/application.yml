@@ -35,10 +35,15 @@ chroma:
 
 mybatis:
   type-aliases-package: io.g8.customai.user.entity
-
+  configuration:
+    map-underscore-to-camel-case: true
 jwt:
   secret: sk-2e1689fecc8140bba72841d87c7b3a21
   expiration: 864000
+
+vip:
+  auth:
+    key: $$$$$$$$$$
 
 logging:
   level:

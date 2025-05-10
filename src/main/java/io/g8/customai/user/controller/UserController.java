@@ -1,7 +1,12 @@
 package io.g8.customai.user.controller;
 
+import io.g8.customai.common.security.jwt.JwtUtil;
 import io.g8.customai.user.entity.User;
+import io.g8.customai.user.DTO.UserInfoDTO;
+import io.g8.customai.user.service.UserQuotaService;
 import io.g8.customai.user.service.UserService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -14,8 +19,16 @@ import java.util.Map;
 @RequestMapping("/api/user")
 public class UserController {
 
+    private static final Logger logger = LoggerFactory.getLogger(UserController.class);
+
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private JwtUtil jwtUtil;
+
+    @Autowired
+    private UserQuotaService userQuotaService;
 
     /**
      * 用户注册
@@ -80,23 +93,33 @@ public class UserController {
     /**
      * 获取用户信息
      *
+     * @param name:要获取的用户名称
+     *            如果没有，则从JWT中读
      * @return 用户信息
      */
+    /**
+     * 获取用户配额信息
+     */
     @GetMapping("/info")
-    public ResponseEntity<?> getUserInfo(@RequestParam String uid) {
-        User user = userService.findByUid(uid);
+    public ResponseEntity<?> getUserInfo(@RequestHeader("Authorization") String authHeader,
+                                         @RequestParam String name) {
+        String uid = jwtUtil.getUidFromParamOrJwt(name, userService, authHeader);
+        UserInfoDTO userInfo;
+        try {
+            userInfo = userQuotaService.getUserInfo(uid);
+            if (userInfo == null) {
+                return ResponseEntity.notFound().build();
+            }
 
-        if (user == null) {
-            Map<String, String> response = new HashMap<>();
-            response.put("message", "用户不存在");
-            return new ResponseEntity<>(response, HttpStatus.NOT_FOUND);
+            Map<String, Object> response = new HashMap<>();
+            response.put("userInfo", userInfo);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("获取用户信息失败", e);
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("message", "获取用户信息时发生错误"));
         }
-
-        // 清除密码信息后返回
-        user.setPassword(null);
-        return new ResponseEntity<>(user, HttpStatus.OK);
     }
-
     /**
      * 更新用户信息
      *
@@ -118,14 +141,10 @@ public class UserController {
         return new ResponseEntity<>(response, HttpStatus.OK);
     }
 
-    /**
-     * 删除用户
-     *
-     * @param uid 用户ID
-     * @return 删除结果
-     */
     @DeleteMapping("/delete")
-    public ResponseEntity<?> deleteUser(@RequestParam String uid) {
+    public ResponseEntity<?> deleteUser(@RequestHeader("Authorization") String authHeader,
+                                        @RequestParam String name) {
+        String uid = jwtUtil.getUidFromParamOrJwt(name, userService, authHeader);
         boolean result = userService.deleteUser(uid);
 
         if (!result) {

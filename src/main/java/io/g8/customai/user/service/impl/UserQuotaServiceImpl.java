@@ -1,9 +1,11 @@
 package io.g8.customai.user.service.impl;
 
-
+import io.g8.customai.user.DTO.ModelInvocationRecord;
+import io.g8.customai.user.DTO.UserInfoDTO;
+import io.g8.customai.user.DTO.VipChangeRecord;
 import io.g8.customai.user.entity.User;
-import io.g8.customai.user.entity.UserQuota;
-import io.g8.customai.user.entity.VipRecord;
+import io.g8.customai.user.mapper.ModelInvocationRecordMapper;
+import io.g8.customai.user.mapper.VipChangeRecordMapper;
 import io.g8.customai.user.service.UserQuotaService;
 import io.g8.customai.user.service.UserService;
 import org.slf4j.Logger;
@@ -11,73 +13,92 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-
+import org.springframework.transaction.annotation.Transactional;
+import java.util.Calendar;
 import java.util.Date;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
-/**
- * 用户配额服务实现类
- */
 @Service
 public class UserQuotaServiceImpl implements UserQuotaService {
 
     private static final Logger logger = LoggerFactory.getLogger(UserQuotaServiceImpl.class);
 
-    // 存储用户配额信息（实际应用中应该使用数据库）
-    private final Map<String, UserQuota> userQuotaMap = new ConcurrentHashMap<>();
-
-    // 存储VIP记录信息（实际应用中应该使用数据库）
-    private final Map<String, VipRecord> vipRecordMap = new ConcurrentHashMap<>();
-
-    @Value("${vip.auth.key:$$$$$$$$$$}")
+    @Value("${vip.auth.key}")
     private String vipAuthKey;
 
     @Autowired
     private UserService userService;
 
+    @Autowired
+    private VipChangeRecordMapper vipRecordMapper;
+
+    @Autowired
+    private ModelInvocationRecordMapper invocationRecordMapper;
+
     @Override
-    public UserQuota getUserQuotaById(String uid) {
+    public UserInfoDTO getUserInfo(String uid) {
         User user = userService.findByUid(uid);
-        if (shouldNotRespond(user)) return null;
-
-        // 获取或创建用户配额信息
-        UserQuota quota = userQuotaMap.computeIfAbsent(uid,
-                k -> new UserQuota(uid, user.getCategory()));
-
-        // 检查并重置每日使用量（如果是新的一天）
-        quota.checkAndResetDaily();
-
-        return quota;
-    }
-
-    @Override
-    public UserQuota getUserQuotaByName(String name) {
-        User user = userService.findByName(name);
-        if (shouldNotRespond(user)) return null;
-
-        // 获取或创建用户配额信息
-//        UserQuota quota = userQuotaMap.computeIfAbsent(uid, k -> new UserQuota(uid, user.getCategory()));
-        UserQuota quota = userQuotaMap.computeIfAbsent(name,
-                k->new UserQuota(user.getUid(), user.getCategory()));
-        // 检查并重置每日使用量（如果是新的一天）
-        quota.checkAndResetDaily();
-
-        return quota;
-    }
-
-    private static boolean shouldNotRespond(User user) {
         if (user == null) {
-            return true;
+            return null;
         }
-        // 如果是ADMIN或CS，不返回配额信息
-        if (user.getCategory() == User.Category.ADMIN || user.getCategory() == User.Category.CS) {
-            return true;
-        }
-        return false;
+
+        // 获取VIP记录
+        VipChangeRecord vipRecord = vipRecordMapper.findLatestActiveByUid(uid);
+        System.out.println(vipRecord);
+        // 根据类别获取每日限额
+        int dailyLimit = calculateDailyLimit(user.getCategory());
+
+        // 获取今日已使用次数
+        int usedToday = invocationRecordMapper.countTodayInvocations(uid);
+
+        // 计算剩余使用次数
+        int remainingUsage = (dailyLimit == -1) ? Integer.MAX_VALUE : Math.max(0, dailyLimit - usedToday);
+
+        // 构建并返回DTO
+        return UserInfoDTO.fromUser(user, vipRecord, dailyLimit, usedToday, remainingUsage);
     }
 
     @Override
+    public int getRemainingUsage(String uid) {
+        User user = userService.findByUid(uid);
+        if (user == null) {
+            return 0;
+        }
+
+        // 如果是ADMIN或CS，不受限制
+        if (user.getCategory() == User.Category.ADMIN || user.getCategory() == User.Category.CS) {
+            return Integer.MAX_VALUE;
+        }
+
+        // 计算每日限额
+        int dailyLimit = calculateDailyLimit(user.getCategory());
+
+        // 获取今日已使用次数
+        int usedToday = invocationRecordMapper.countTodayInvocations(uid);
+
+        return Math.max(0, dailyLimit - usedToday);
+    }
+
+    @Override
+    @Transactional
+    public boolean recordModelInvocation(String uid, String content, String modelName, int tokensUsed) {
+        User user = userService.findByUid(uid);
+        if (user == null) {
+            return false;
+        }
+
+        // 检查是否有足够的使用额度
+        int remainingUsage = getRemainingUsage(uid);
+        if (remainingUsage <= 0 && user.getCategory() != User.Category.ADMIN && user.getCategory() != User.Category.CS) {
+            logger.warn("用户 {} 今日配额已用完，拒绝模型调用", uid);
+            return false;
+        }
+
+        // 记录调用
+        ModelInvocationRecord record = ModelInvocationRecord.createRecord(uid, content, modelName, tokensUsed);
+        return invocationRecordMapper.insert(record) > 0;
+    }
+
+    @Override
+    @Transactional
     public boolean upgradeToVip(String uid, String vipKey) {
         // 验证VIP密钥
         if (!vipAuthKey.equals(vipKey)) {
@@ -101,17 +122,16 @@ public class UserQuotaServiceImpl implements UserQuotaService {
         boolean updated = userService.updateUser(user);
 
         if (updated) {
-            // 创建VIP记录
-            VipRecord record = new VipRecord(uid);
-            vipRecordMap.put(uid, record);
+            // 设置VIP结束时间（一个月后）
+            Calendar calendar = Calendar.getInstance();
+            calendar.add(Calendar.MONTH, 1);
+            Date endTime = calendar.getTime();
 
-            // 更新用户配额
-            UserQuota quota = userQuotaMap.get(uid);
-            if (quota != null) {
-                quota.updateDailyLimit(User.Category.VIP);
-            }
+            // 创建并保存VIP记录
+            VipChangeRecord record = VipChangeRecord.createGrantRecord(uid, endTime);
+            vipRecordMapper.insert(record);
 
-            logger.info("用户 {} 成功升级到VIP，有效期至: {}", uid, record.getEndTime());
+            logger.info("用户 {} 成功升级到VIP，有效期至: {}", uid, endTime);
             return true;
         }
 
@@ -119,6 +139,50 @@ public class UserQuotaServiceImpl implements UserQuotaService {
     }
 
     @Override
+    @Transactional
+    public boolean renewVip(String uid, String vipKey) {
+        // 验证VIP密钥
+        if (!vipAuthKey.equals(vipKey)) {
+            logger.warn("用户 {} VIP续费请求使用了无效的VIP密钥", uid);
+            return false;
+        }
+
+        User user = userService.findByUid(uid);
+        if (user == null) {
+            return false;
+        }
+
+        // 只允许VIP用户续费
+        if (user.getCategory() != User.Category.VIP) {
+            logger.info("用户 {} 不是VIP用户，无法续费", uid);
+            return false;
+        }
+
+        // 获取当前VIP记录
+        VipChangeRecord currentVip = vipRecordMapper.findLatestActiveByUid(uid);
+
+        // 设置新的VIP结束时间（从当前结束时间再延长一个月）
+        Calendar calendar = Calendar.getInstance();
+        if (currentVip != null && currentVip.getEndTime() != null) {
+            calendar.setTime(currentVip.getEndTime());
+        }
+        calendar.add(Calendar.MONTH, 1);
+        Date newEndTime = calendar.getTime();
+
+        // 停用所有现有的VIP记录
+        vipRecordMapper.deactivateAllByUid(uid);
+
+        // 创建并保存新的VIP记录
+        VipChangeRecord record = VipChangeRecord.createGrantRecord(uid, newEndTime);
+        record.setReason("VIP Renewed");
+        vipRecordMapper.insert(record);
+
+        logger.info("用户 {} 成功续费VIP，新的有效期至: {}", uid, newEndTime);
+        return true;
+    }
+
+    @Override
+    @Transactional
     public boolean removeVipByAdmin(String adminUid, String targetUsername, String reason) {
         // 验证管理员权限
         User admin = userService.findByUid(adminUid);
@@ -145,17 +209,12 @@ public class UserQuotaServiceImpl implements UserQuotaService {
         boolean updated = userService.updateUser(targetUser);
 
         if (updated) {
-            // 更新VIP记录
-            VipRecord record = vipRecordMap.get(targetUser.getUid());
-            if (record != null) {
-                record.cancelVip(reason);
-            }
+            // 停用所有现有的VIP记录
+            vipRecordMapper.deactivateAllByUid(targetUser.getUid());
 
-            // 更新用户配额
-            UserQuota quota = userQuotaMap.get(targetUser.getUid());
-            if (quota != null) {
-                quota.updateDailyLimit(User.Category.NORMAL);
-            }
+            // 创建撤销记录
+            VipChangeRecord record = VipChangeRecord.createRevokeRecord(targetUser.getUid(), reason);
+            vipRecordMapper.insert(record);
 
             logger.info("管理员 {} 已将用户 {} 降级为普通用户，原因: {}", adminUid, targetUsername, reason);
             return true;
@@ -165,34 +224,43 @@ public class UserQuotaServiceImpl implements UserQuotaService {
     }
 
     @Override
+    @Transactional
     public void checkAndUpdateVipStatus() {
         Date now = new Date();
         logger.info("开始检查所有VIP用户状态: {}", now);
 
-        vipRecordMap.forEach((uid, record) -> {
-            // 检查VIP是否已过期
-            if (record.isActive() && now.after(record.getEndTime())) {
-                // 将用户降级为普通用户
-                User user = userService.findByUid(uid);
-                if (user != null && user.getCategory() == User.Category.VIP) {
-                    user.setCategory(User.Category.NORMAL);
-                    userService.updateUser(user);
+        // 获取所有已过期的VIP记录
+        var expiredRecords = vipRecordMapper.findExpiredRecords(now);
 
-                    // 更新VIP记录
-                    record.setActive(false);
-                    record.setReason("VIP会员期限已到");
+        for (VipChangeRecord record : expiredRecords) {
+            // 标记记录为非活跃
+            vipRecordMapper.updateStatus(record.getId(), false, "VIP会员期限已到");
 
-                    // 更新用户配额
-                    UserQuota quota = userQuotaMap.get(uid);
-                    if (quota != null) {
-                        quota.updateDailyLimit(User.Category.NORMAL);
-                    }
+            // 将用户降级为普通用户
+            User user = userService.findByUid(record.getUid());
+            if (user != null && user.getCategory() == User.Category.VIP) {
+                user.setCategory(User.Category.NORMAL);
+                userService.updateUser(user);
 
-                    logger.info("用户 {} 的VIP已过期，已自动降级为普通用户", uid);
-                }
+                // 创建自动过期记录
+                VipChangeRecord expiredRecord = VipChangeRecord.createExpiredRecord(user.getUid());
+                vipRecordMapper.insert(expiredRecord);
+
+                logger.info("用户 {} 的VIP已过期，已自动降级为普通用户", user.getUid());
             }
-        });
+        }
 
-        logger.info("VIP用户状态检查完成");
+        logger.info("VIP用户状态检查完成，共处理 {} 条过期记录", expiredRecords.size());
+    }
+
+    /**
+     * 根据用户类别计算每日限额
+     */
+    private int calculateDailyLimit(User.Category category) {
+        return switch (category) {
+            case NORMAL -> 20;
+            case VIP -> 200;
+            default -> -1; // 管理员和客服无限制
+        };
     }
 }
