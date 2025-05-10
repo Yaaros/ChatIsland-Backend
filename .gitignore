@@ -23,6 +23,7 @@ target/
 chroma/
 pdf/
 chroma运行.txt
+.mvn/
 
 ### NetBeans ###
 /nbproject/private/
