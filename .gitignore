@@ -19,6 +19,10 @@ target/
 *.iml
 *.ipr
 
+### 外部资源
+chroma/
+pdf/
+
 ### NetBeans ###
 /nbproject/private/
 /nbbuild/
