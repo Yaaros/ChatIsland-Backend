@@ -28,7 +28,7 @@ server:
 # AI ??
 dashscope:
   api:
-    key: sk-2e1689fecc8140bba72841d87c7b3a25
+    key: ${DASH_SCOPE_KEY}
 
 chroma:
   url: http://localhost:8677

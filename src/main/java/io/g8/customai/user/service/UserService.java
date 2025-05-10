@@ -47,3 +47,13 @@ public interface UserService {
      */
     boolean deleteUser(String uid);
 }
+/*
+public interface UserService {
+User register(User user);
+String login(String name, String password);
+User findByUid(String uid);
+User findByName(String name);
+boolean updateUser(User user);
+boolean deleteUser(String uid);
+}
+*/
