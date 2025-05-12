@@ -24,6 +24,8 @@ chroma/
 pdf/
 chroma运行.txt
 .mvn/
+help/
+frontend-test-by-yaaros/
 
 ### NetBeans ###
 /nbproject/private/
