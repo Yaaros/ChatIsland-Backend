@@ -1,6 +1,7 @@
 package io.g8.customai.common.security.config;
 
 import io.g8.customai.common.security.jwt.JwtAuthenticationFilter;
+import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -31,6 +32,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/user/login", "api/test","/api/user/register")
                         .permitAll()
                         .anyRequest().authenticated()
+                )
+                .securityMatcher(request ->
+                        !DispatcherType.ASYNC.equals(request.getDispatcherType())
                 );
 
         http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

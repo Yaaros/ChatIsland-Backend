@@ -42,7 +42,7 @@ public class UserQuotaServiceImpl implements UserQuotaService {
 
         // 获取VIP记录
         VipChangeRecord vipRecord = vipRecordMapper.findLatestActiveByUid(uid);
-        System.out.println(vipRecord);
+        System.out.println("VIPRecord="+vipRecord);
         // 根据类别获取每日限额
         int dailyLimit = calculateDailyLimit(user.getCategory());
 

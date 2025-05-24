@@ -37,13 +37,15 @@ public class UserQuotaController {
             @RequestHeader("Authorization") String authHeader,
             @RequestParam String name,
             @RequestBody Map<String, String> request) {
+        if(request.get("name")!=null){
+            name = request.get("name");
+        }
         String uid = jwtUtil.getUidFromParamOrJwt(name, userService, authHeader);
         String vipKey = request.get("vipKey");
         if (vipKey == null || vipKey.isEmpty()) {
             return ResponseEntity.badRequest()
                     .body(Map.of("message", "VIP密钥不能为空"));
         }
-
         try {
             boolean success = userQuotaService.upgradeToVip(uid, vipKey);
             if (!success) {

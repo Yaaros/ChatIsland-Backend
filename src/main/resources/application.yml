@@ -26,24 +26,18 @@ server:
   port: 8113
 
 # AI ??
-dashscope:
-  api:
-    key: ${DASH_SCOPE_KEY}
-
-chroma:
-  url: http://localhost:8677
-
 mybatis:
   type-aliases-package: io.g8.customai.user.entity
   configuration:
     map-underscore-to-camel-case: true
 jwt:
-  secret: sk-2e1689fecc8140bba72841d87c7b3a21
-  expiration: 864000
+  secret: ${DASHSCOPE_KEY}+"$"+${DEEPSEEK_KEY}
+  expiration: 86400
 
 vip:
   auth:
     key: $$$$$$$$$$
+
 
 logging:
   level:
@@ -62,3 +56,25 @@ logging:
     org.springframework.data.jpa: debug
     org.hibernate.SQL: debug
     org.hibernate.type.descriptor.sql.BasicBinder: trace
+langchain4j:
+  community:
+    dashscope:
+#      chat-model:
+#        api-key: ${DASHSCOPE_KEY}
+#        parameters:
+#          max-output-tokens: 8000
+#        model-name: qwen-turbo
+      streaming-chat-model:
+        api-key: ${DASHSCOPE_KEY}
+        model-name: qwen-turbo
+        parameters:
+            max-output-tokens: 8000
+      embedding-model:
+        model-name: text-embedding-v3
+        api-key: ${DASHSCOPE_KEY}
+  open-ai:
+    chat-model:
+      api-key: ${DEEPSEEK_KEY}
+      base-url: https://api.deepseek.com/v1/
+      model-name: deepseek-chat
+
