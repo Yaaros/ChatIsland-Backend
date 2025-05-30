@@ -12,7 +12,6 @@ import org.springframework.context.annotation.ComponentScan;
         "io.g8.customai.chat",
         "io.g8.customai.customer_service",})
 public class CustomAiApplication {
-
     public static void main(String[] args) {
         SpringApplication.run(CustomAiApplication.class, args);
     }

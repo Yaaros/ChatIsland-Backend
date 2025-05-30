@@ -118,6 +118,11 @@
             <artifactId>langchain4j-community-dashscope-spring-boot-starter</artifactId>
             <version>${langchain4j.version}</version>
         </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-document-parser-apache-tika</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
 
 
         <!-- 本地向量存储 -->
@@ -172,7 +177,16 @@
             <version>5.11.4</version>
             <scope>test</scope>
         </dependency>
-
+        <!--  Redis      -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>redis.clients</groupId>
+            <artifactId>jedis</artifactId>
+            <version>5.1.0</version>
+        </dependency>
 
     </dependencies>
     <dependencyManagement>

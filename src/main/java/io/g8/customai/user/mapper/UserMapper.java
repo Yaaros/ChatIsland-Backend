@@ -73,4 +73,7 @@ public interface UserMapper {
      */
     @Delete("DELETE FROM user WHERE uid = #{uid}")
     int delete(String uid);
+
+    @Select("SELECT COUNT(*) FROM user WHERE category != 'ADMIN' AND category != 'CS'")
+    int totalUserNum();
 }

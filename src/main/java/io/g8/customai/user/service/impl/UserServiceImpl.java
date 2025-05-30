@@ -34,7 +34,7 @@ public class UserServiceImpl implements UserService {
 
         // 生成唯一ID
         if (user.getUid() == null || user.getUid().isEmpty()) {
-            user.setUid(UUID.randomUUID().toString());
+            user.setUid(String.valueOf(17* userMapper.totalUserNum()+3));
         }
 
         // 设置创建时间

@@ -21,7 +21,17 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: true
-
+  data:
+    redis:
+      host: 47.117.128.101
+      port: 6379
+      database: 0
+      timeout: 4000ms
+      lettuce:
+        pool:
+          max-active: 10
+          max-idle: 8
+          min-idle: 2
 server:
   port: 8113
 
@@ -41,16 +51,16 @@ vip:
 
 logging:
   level:
-    # ???????????????
+
     io.g8.customai.user.controller: debug
 
-    # ?????
     io.g8.customai.user.service: debug
 
-    # Mapper ?????MyBatis?
+    # Mapper:MyBatis
     io.g8.customai.user.mapper: trace
 
-    # Spring Boot ???????
+    # Spring Boot
+    org.springframework.core: debug
     org.springframework.web: debug
     org.springframework.transaction: debug
     org.springframework.data.jpa: debug
@@ -70,7 +80,6 @@ langchain4j:
         parameters:
             max-output-tokens: 8000
       embedding-model:
-        model-name: text-embedding-v3
         api-key: ${DASHSCOPE_KEY}
   open-ai:
     chat-model:
@@ -78,3 +87,6 @@ langchain4j:
       base-url: https://api.deepseek.com/v1/
       model-name: deepseek-chat
 
+knowledge:
+  vector:
+    dimension: 768  # 向量维度

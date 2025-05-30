@@ -1,8 +1,7 @@
 package io.g8.customai.common.security.jwt;
 
 import io.g8.customai.user.service.UserService;
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -43,7 +42,7 @@ public class JwtUtil {
                 .setSubject(username)
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + expiration * 1000))
-                .signWith(getSigningKey()) // 使用相同的方法获取密钥
+                .signWith(getSigningKey())
                 .compact();
     }
 
@@ -71,22 +70,57 @@ public class JwtUtil {
     private Claims getAllClaimsFromToken(String token) {
         return Jwts
                 .parserBuilder()
-                .setSigningKey(getSigningKey()) // 使用相同的方法获取密钥
+                .setSigningKey(getSigningKey())
                 .build()
                 .parseClaimsJws(token)
                 .getBody();
     }
 
+    // 修改：严格检查token是否过期
     private Boolean isTokenExpired(String token) {
         final Date expiration = getExpirationDateFromToken(token);
         return expiration.before(new Date());
     }
 
+    // 修改：更严格的token验证逻辑
     public Boolean validateToken(String token) {
         try {
-            return !isTokenExpired(token);
+            // 解析token会自动验证签名和过期时间
+            Claims claims = getAllClaimsFromToken(token);
+
+            // 检查必要的字段是否存在
+            if (claims.getSubject() == null || claims.get("uid") == null) {
+                return false;
+            }
+
+            // 检查是否过期
+            if (isTokenExpired(token)) {
+                return false;
+            }
+
+            return true;
+        } catch (ExpiredJwtException e) {
+            // JWT已过期
+            System.err.println("JWT token is expired: " + e.getMessage());
+            return false;
+        } catch (UnsupportedJwtException e) {
+            // JWT格式不支持
+            System.err.println("JWT token is unsupported: " + e.getMessage());
+            return false;
+        } catch (MalformedJwtException e) {
+            // JWT格式错误
+            System.err.println("JWT token is malformed: " + e.getMessage());
+            return false;
+        } catch (SignatureException e) {
+            // 签名验证失败
+            System.err.println("JWT signature validation failed: " + e.getMessage());
+            return false;
+        } catch (IllegalArgumentException e) {
+            // 非法参数
+            System.err.println("JWT token compact of handler are invalid: " + e.getMessage());
+            return false;
         } catch (Exception e) {
-            e.printStackTrace(); // 添加日志便于调试
+            System.err.println("JWT token validation failed: " + e.getMessage());
             return false;
         }
     }
