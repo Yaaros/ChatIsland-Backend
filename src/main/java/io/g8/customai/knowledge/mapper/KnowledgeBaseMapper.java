@@ -50,5 +50,20 @@ public interface KnowledgeBaseMapper {
     @Insert("INSERT INTO knowledge_base_sequence (uid, next_kid_num) VALUES (#{uid}, #{nextNum}) " +
             "ON DUPLICATE KEY UPDATE next_kid_num = #{nextNum}")
     int upsertSequence(@Param("uid") String uid, @Param("nextNum") int nextNum);
+    // 查询对应uid+kid的知识库（不限定status）
+    @Select("SELECT * FROM knowledge_base WHERE uid = #{uid} AND kid = #{kid}")
+    @Results({
+            @Result(property = "tags", column = "tags",
+                    typeHandler = io.g8.customai.knowledge.utils.JsonTypeHandler.class)
+    })
+    KnowledgeBase findAnyByUidAndKid(@Param("uid") String uid, @Param("kid") String kid);
+
+    // 恢复软删除的知识库（status=0 → status=1，并更新 name/tags/description/created_time）
+    @Update("UPDATE knowledge_base SET name = #{name}, tags = #{tags,typeHandler=io.g8.customai.knowledge.utils.JsonTypeHandler}, " +
+            "description = #{description}, status = 1, created_time = NOW() " +
+            "WHERE uid = #{uid} AND kid = #{kid} AND status = 0")
+    int recoverDeletedKnowledgeBase(KnowledgeBase knowledgeBase);
+
+
 }
 

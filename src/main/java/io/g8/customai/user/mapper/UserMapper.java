@@ -1,7 +1,10 @@
 package io.g8.customai.user.mapper;
 
+import dev.langchain4j.agent.tool.P;
 import io.g8.customai.user.entity.User;
 import org.apache.ibatis.annotations.*;
+
+import java.util.List;
 
 @Mapper
 public interface UserMapper {
@@ -48,6 +51,14 @@ public interface UserMapper {
     })
     User findByName(String name);
 
+    @Select("SELECT * FROM user WHERE category = #{type}")
+    @Results({
+            @Result(property = "uid", column = "uid"),
+            @Result(property = "name", column = "name"),
+            @Result(property = "createTime", column = "create_time")
+    })
+    List<User> findByType(@Param("type") User.Category category);
+
     /**
      * 更新用户信息
      *
@@ -76,4 +87,10 @@ public interface UserMapper {
 
     @Select("SELECT COUNT(*) FROM user WHERE category != 'ADMIN' AND category != 'CS'")
     int totalUserNum();
+
+    @Select("SELECT COUNT(*) FROM user WHERE category = 'ADMIN'")
+    int totalAdminNum();
+
+    @Select("SELECT COUNT(*) FROM user WHERE category = 'CS'")
+    int totalCsNum();
 }

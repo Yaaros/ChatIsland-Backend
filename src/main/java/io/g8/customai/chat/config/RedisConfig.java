@@ -3,6 +3,7 @@ package io.g8.customai.chat.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import io.g8.customai.common.constants.KnowLedgeEnvs;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -32,27 +33,9 @@ public class RedisConfig {
         template.afterPropertiesSet();
         return template;
     }
-
-    // 已弃用
-//    @Bean(name = "embed-redis-config")
-//    @Deprecated
-//    public RedisTemplate<String, Object> redisDb4Template() {
-//        RedisStandaloneConfiguration config = new RedisStandaloneConfiguration("localhost", 6379);
-//        config.setDatabase(4); // 设置为 DB 4
-//
-//        LettuceConnectionFactory factory = new LettuceConnectionFactory(config);
-//        factory.afterPropertiesSet();
-//
-//        RedisTemplate<String, Object> template = new RedisTemplate<>();
-//        template.setConnectionFactory(factory);
-//        template.setKeySerializer(new StringRedisSerializer());
-//        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
-//        template.afterPropertiesSet();
-//        return template;
-//    }
     @Bean(name = "embed-jedis")
     public JedisPooled embedJedis() {
-        return new JedisPooled("47.117.128.101", 6379);
+        return new JedisPooled(KnowLedgeEnvs.JEDIS_URL, 6379);
     }
     @Bean
     public ObjectMapper objectMapper() {

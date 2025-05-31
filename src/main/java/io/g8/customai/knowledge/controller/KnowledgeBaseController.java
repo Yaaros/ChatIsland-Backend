@@ -1,9 +1,7 @@
 package io.g8.customai.knowledge.controller;
 
 import dev.langchain4j.data.document.Document;
-import dev.langchain4j.data.document.DocumentParser;
 import dev.langchain4j.data.document.DocumentSplitter;
-import dev.langchain4j.data.document.parser.TextDocumentParser;
 import dev.langchain4j.data.document.parser.apache.tika.ApacheTikaDocumentParser;
 import dev.langchain4j.data.document.splitter.DocumentByParagraphSplitter;
 import dev.langchain4j.data.embedding.Embedding;
@@ -17,6 +15,9 @@ import io.g8.customai.knowledge.entity.KnowledgeBase;
 import io.g8.customai.knowledge.service.KnowledgeBaseService;
 import io.g8.customai.knowledge.store.RedisEmbeddingStore;
 import jakarta.persistence.NoResultException;
+import org.apache.tika.metadata.Metadata;
+import org.apache.tika.metadata.TikaCoreProperties;
+import org.jetbrains.annotations.NotNull;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +26,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 @RestController
@@ -56,7 +58,7 @@ public class KnowledgeBaseController {
             @RequestHeader("Authorization") String token,
             @RequestParam(value = "uid", required = false) String uid,
             @RequestBody Map<String, Object> request) {
-//        try {
+        try {
             // 解析UID
             uid = resolveUid(token, uid);
 
@@ -78,8 +80,6 @@ public class KnowledgeBaseController {
 
 
             // 创建知识库
-
-            System.out.println(kb);
             return ResponseEntity.ok(Map.of(
                     "status", "success",
                     "message", "知识库创建成功",
@@ -91,12 +91,12 @@ public class KnowledgeBaseController {
                     )
             ));
 
-//        } catch (Exception e) {
-//            System.out.println(e);
-//            return ResponseEntity.internalServerError().body(Map.of(
-//                    "error", "创建知识库失败: " + e.getMessage()
-//            ));
-//        }
+        } catch (Exception e) {
+            System.out.println(e);
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "error", "创建知识库失败: " + e.getMessage()
+            ));
+        }
     }
 
     /**
@@ -180,8 +180,6 @@ public class KnowledgeBaseController {
             }
 
             // 删除知识库
-            System.out.println(knowledgeBaseService.testRedisConnection());
-
             knowledgeBaseService.deleteKnowledgeBase(requestUid, kid);
 
             return ResponseEntity.ok(Map.of(
@@ -247,7 +245,7 @@ public class KnowledgeBaseController {
 
             // 文档处理流水线
             Document document = parseDocument(file);
-            List<TextSegment> segments = splitter.split(document);
+            List<TextSegment> segments = preprocessDocument(document);
             List<Embedding> embeddings = embeddingModel.embedAll(segments).content();
 
             // 生成文档ID
@@ -281,7 +279,6 @@ public class KnowledgeBaseController {
             ));
         }
     }
-
     /**
      * 知识检索接口（保持原有逻辑）
      */
@@ -307,7 +304,7 @@ public class KnowledgeBaseController {
             EmbeddingSearchRequest searchRequest = EmbeddingSearchRequest.builder()
                     .queryEmbedding(queryEmbedding)
                     .maxResults(Integer.valueOf(input.getOrDefault("maxResults", "3")))
-                    .minScore(Double.valueOf(input.getOrDefault("minScore", "0.5")))
+                    .minScore(Double.valueOf(input.getOrDefault("minScore", KnowLedgeEnvs.MIN_SCORE)))
                     .build();
 
             // 执行用户专属搜索
@@ -329,7 +326,6 @@ public class KnowledgeBaseController {
             ));
         }
     }
-
     /**
      * 删除接口（修改版 - 删除所有知识库）
      */
@@ -369,15 +365,53 @@ public class KnowledgeBaseController {
     // ============= 辅助方法 =============
 
     private Document parseDocument(MultipartFile file) throws IOException {
+        String filename = getFileName(file);
+
+        // 构造带有文件名的 Metadata
+        Supplier<Metadata> metadataSupplier = () -> {
+            Metadata metadata = new Metadata();
+            metadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, filename);  // 提供文件名给 Tika 用于 MIME 类型识别
+            return metadata;
+        };
+
+        // 使用带有 metadataSupplier 的 ApacheTikaDocumentParser 实例
+        ApacheTikaDocumentParser parser = new ApacheTikaDocumentParser(
+                null, // 使用默认 parserSupplier
+                null,               // 使用默认 contentHandlerSupplier
+                metadataSupplier,
+                null, // 使用默认 parseContextSupplier
+                true  // includeMetadata = true，可选
+        );
+
+        return parser.parse(file.getInputStream());
+    }
+
+    @NotNull
+    private static String getFileName(MultipartFile file) {
         String filename = file.getOriginalFilename();
-        if(filename==null)throw new NoResultException("文件名不能为空");
-        String[] arr = filename.toLowerCase().split("\\.");
-        if(arr.length<2)throw new UnsupportedOperationException("不支持的文档格式: " + filename);
-        filename = arr[arr.length-1];
-        if (KnowLedgeEnvs.SUPPORTED_FILES.contains(filename)) {
-            return new ApacheTikaDocumentParser().parse(file.getInputStream());
+        if (filename == null) {
+            throw new NoResultException("文件名不能为空");
         }
-        throw new UnsupportedOperationException("不支持的文档格式: " + filename);
+
+        String[] arr = filename.toLowerCase().split("\\.");
+        if (arr.length < 2) {
+            throw new UnsupportedOperationException("不支持的文档格式: " + filename);
+        }
+
+        String extension = arr[arr.length - 1];
+        if (!KnowLedgeEnvs.SUPPORTED_FILES.contains(extension)) {
+            throw new UnsupportedOperationException("不支持的文档格式: " + filename);
+        }
+        return filename;
+    }
+
+    // 文本清理和分割
+    private List<TextSegment> preprocessDocument(Document document) {
+        String cleanedText = document.text()
+                .replaceAll("[\\p{Cntrl}\\p{Space}]+", " ") // 清理控制字符和多余空格
+                .trim();
+        List<TextSegment> segments = splitter.split(Document.document(cleanedText,document.metadata()));
+        return segments;
     }
 
     private String resolveUid(String token, String requestUid) {

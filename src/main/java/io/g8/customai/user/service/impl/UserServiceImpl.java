@@ -10,7 +10,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Date;
-import java.util.UUID;
 
 @Service
 public class UserServiceImpl implements UserService {
@@ -34,7 +33,14 @@ public class UserServiceImpl implements UserService {
 
         // 生成唯一ID
         if (user.getUid() == null || user.getUid().isEmpty()) {
-            user.setUid(String.valueOf(17* userMapper.totalUserNum()+3));
+            switch (user.getCategory()){
+                case User.Category.ADMIN->
+                   user.setUid(String.valueOf(userMapper.totalAdminNum()));
+                case User.Category.CS->
+                    user.setUid(String.valueOf(65535-2* userMapper.totalCsNum()));
+                default->
+                    user.setUid(String.valueOf(17* userMapper.totalUserNum()+7));
+            }
         }
 
         // 设置创建时间

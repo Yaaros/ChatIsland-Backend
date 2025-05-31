@@ -1,15 +1,18 @@
 package io.g8.customai.knowledge.store;
 
+import com.google.gson.Gson;
 import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
+import io.g8.customai.common.constants.KnowLedgeEnvs;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import redis.clients.jedis.JedisPooled;
+import redis.clients.jedis.exceptions.JedisDataException;
 import redis.clients.jedis.search.*;
 import redis.clients.jedis.search.schemafields.SchemaField;
 import redis.clients.jedis.search.schemafields.TextField;
@@ -22,16 +25,14 @@ import java.util.*;
 @Component
 public class RedisEmbeddingStore {
     private static final String VECTOR_FIELD = "embedding";
-    private static final int VECTOR_DIM = 768; // 根据实际向量维度设置
+    private static final int VECTOR_DIM = 1536; // 根据实际向量维度设置
     private static final String VECTOR_ALGO = "HNSW";
     private static final String DISTANCE_METRIC = "COSINE";
     private final JedisPooled jedis;
-
     @Autowired
     public RedisEmbeddingStore(@Qualifier("embed-jedis") JedisPooled jedis) {
         this.jedis = jedis;
     }
-
     // 生成索引名称
     private String getIndexName(String uid, String kbIndex) {
         return String.format("idx:user:%s:kb:%s", uid, kbIndex);
@@ -85,62 +86,70 @@ public class RedisEmbeddingStore {
                                           )
                                           ).build()
             };
-            jedis.ftCreate(indexName,
-                    FTCreateParams.createParams()
-                            .on(IndexDataType.HASH)
-                            .prefix(prefix),
-                    schemaFields);
+            try{
+                jedis.ftCreate(indexName,
+                        FTCreateParams.createParams()
+                                .on(IndexDataType.HASH)
+                                .prefix(prefix),
+                        schemaFields);
+            }catch (Exception ex){
+                if(ex instanceof JedisDataException){
+                    jedis.ftCreate(indexName,
+                            FTCreateParams.createParams()
+                                    .on(IndexDataType.HASH)
+                                    .prefix(prefix),
+                            schemaFields);
+                }
+            }
+
         }
     }
-
-    // 添加一条文档记录
     public void add(String uid, String kbIndex, String id, String text, String metadata, List<Float> vector) {
         String indexName = getIndexName(uid, kbIndex);
         String prefix = getPrefix(uid, kbIndex);
         createIndexIfNotExists(indexName, prefix);
 
         String key = getDocKey(uid, kbIndex, id);
-        // 根据你的提醒，使用字符串到字符串的映射
-        Map<String, String> map = new HashMap<>();
-        map.put("text", text);
-        map.put("metadata", metadata);
-        map.put(VECTOR_FIELD, bytesToBase64(floatListToBytes(normalize(vector))));
 
-        jedis.hset(key, map);
+        // Store string fields (text and metadata)
+        Map<String, String> stringFields = new HashMap<>();
+        stringFields.put("text", text);
+        stringFields.put("metadata", metadata);
+        jedis.hset(key, "metadata",new Gson().toJson(stringFields));
+        // Store vector as raw binary data
+        byte[] vectorBytes = floatListToBytes(vector);
+        jedis.hset(key.getBytes(), VECTOR_FIELD.getBytes(), vectorBytes);
     }
 
-    // 批量添加 - 保持你的原有接口
-    public void addAllForUser(String uid, String kbIndex, List<String> ids, List<String> texts,
-                              List<String> metadataList, List<List<Float>> vectors) {
-        for (int i = 0; i < vectors.size(); i++) {
-            add(uid, kbIndex, ids.get(i), texts.get(i), metadataList.get(i), vectors.get(i));
-        }
-    }
-
-    // LangChain4J接口适配
     public void addAllForUser(String uid, String kid, List<Embedding> embeddings, List<TextSegment> segments) {
+        // 参数校验
         if (embeddings.size() != segments.size()) {
             throw new IllegalArgumentException("Embedding 和 Segment 不匹配");
         }
 
+        // 批量处理
         for (int i = 0; i < embeddings.size(); i++) {
             String docId = UUID.randomUUID().toString();
             String text = segments.get(i).text();
             String metadata = segments.get(i).metadata() != null ?
                     segments.get(i).metadata().toMap().toString() : "{}";
+            embeddings.get(i).normalize();
             List<Float> vector = embeddings.get(i).vectorAsList();
             add(uid, kid, docId, text, metadata, vector);
         }
     }
-
     // 向量搜索
-    public List<Map<String, Object>> search(String uid, String kbIndex, List<Float> queryVector, int topK) {
+    public List<Map<String, Object>> search(String uid, String kbIndex, EmbeddingSearchRequest request) {
         String indexName = getIndexName(uid, kbIndex);
         String prefix = getPrefix(uid, kbIndex);
         createIndexIfNotExists(indexName, prefix);
+        Embedding embedding = request.queryEmbedding();
+        embedding.normalize();
+        String queryVectorB64 = bytesToBase64(floatListToBytes(embedding.vectorAsList()));
+        String queryStr =
+                String.format("*=>[KNN %d @%s $vector AS score]", request.maxResults(), VECTOR_FIELD);
 
-        String queryVectorB64 = bytesToBase64(floatListToBytes(normalize(queryVector)));
-        Query query = new Query("*=>[KNN " + topK + " @" + VECTOR_FIELD + " $vector AS score]")
+        Query query = new Query(queryStr)
                 .addParam("vector", base64ToBytes(queryVectorB64))
                 .returnFields("text", "metadata", "score")
                 .setSortBy("score", true)
@@ -148,12 +157,12 @@ public class RedisEmbeddingStore {
 
         SearchResult result = jedis.ftSearch(indexName, query);
         List<Map<String, Object>> results = new ArrayList<>();
-
         for (Document doc : result.getDocuments()) {
+            if(!doc.hasProperty("text"))continue;
             Map<String, Object> map = new HashMap<>();
             map.put("text", doc.getString("text"));
-            map.put("metadata", doc.getString("metadata"));
-            map.put("score", doc.getString("score"));
+            map.put("metadata", doc.hasProperty("metadata")?doc.getString("metadata"):"无metadata");
+            map.put("score", doc.hasProperty("score")?doc.getString("score"):"无分数");
             results.add(map);
         }
         return results;
@@ -161,7 +170,7 @@ public class RedisEmbeddingStore {
 
     // LangChain4J搜索接口适配
     public EmbeddingSearchResult<TextSegment> searchForUser(String uid, String kid, EmbeddingSearchRequest request) {
-        List<Map<String, Object>> rawResults = search(uid, kid, request.queryEmbedding().vectorAsList(), request.maxResults());
+        List<Map<String, Object>> rawResults = search(uid, kid, request);
         List<EmbeddingMatch<TextSegment>> matches = new ArrayList<>();
 
         for (Map<String, Object> result : rawResults) {
@@ -169,7 +178,7 @@ public class RedisEmbeddingStore {
             String metadataStr = (String) result.get("metadata");
             double score = Double.parseDouble((String) result.get("score"));
 
-            if (score >= 0.5) {
+            if (score >= Double.parseDouble(KnowLedgeEnvs.MIN_SCORE)) {
                 // 简单解析metadata，实际情况可能需要更复杂的解析
                 Metadata metadata = Metadata.from(Map.of("raw", metadataStr));
                 TextSegment segment = TextSegment.from(text, metadata);
@@ -247,19 +256,6 @@ public class RedisEmbeddingStore {
         }
         return docIds;
     }
-
-    // 向量归一化
-    private List<Float> normalize(List<Float> vector) {
-        double norm = Math.sqrt(vector.stream().mapToDouble(v -> v * v).sum());
-        if (norm == 0) return vector;
-
-        List<Float> result = new ArrayList<>();
-        for (float v : vector) {
-            result.add((float) (v / norm));
-        }
-        return result;
-    }
-
     // List<Float> 转 byte[]
     private byte[] floatListToBytes(List<Float> floats) {
         ByteBuffer buffer = ByteBuffer.allocate(floats.size() * 4);

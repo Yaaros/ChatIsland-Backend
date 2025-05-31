@@ -8,9 +8,12 @@ import io.g8.customai.knowledge.store.RedisEmbeddingStore;
 import jakarta.transaction.Transactional;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import redis.clients.jedis.exceptions.JedisConnectionException;
 
+import java.lang.reflect.Field;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -29,11 +32,8 @@ public class KnowledgeBaseService {
     @Autowired
     private RedisEmbeddingStore embeddingStore;
 
-    /**
-     * 创建新的知识库
-     */
     public KnowledgeBase createKnowledgeBase(String uid, String name, List<String> tags) {
-        // 获取下一个知识库编号
+        // 获取下一个 kid
         Integer nextNum = knowledgeBaseMapper.getNextKidNum(uid);
         if (nextNum == null) {
             nextNum = 1;
@@ -41,23 +41,42 @@ public class KnowledgeBaseService {
 
         String kid = "kb_" + nextNum;
 
-        // 创建知识库对象
-        KnowledgeBase kb = new KnowledgeBase(kid, uid, name, tags);
+        // 检查是否已有该 kid 的记录
+        KnowledgeBase existing = knowledgeBaseMapper.findAnyByUidAndKid(uid, kid);
+        if (existing != null) {
+            if (existing.getStatus() == 0) {
+                // 已软删除，尝试恢复
+                existing.setName(name);
+                existing.setTags(tags);
+                existing.setStatus(1);
+                existing.setCreatedTime(LocalDateTime.now());
+                existing.setDocumentCount(0); // 也可保留原值
+                knowledgeBaseMapper.recoverDeletedKnowledgeBase(existing);
+                return existing;
+            } else {
+                // 已存在有效记录，抛出异常
+                throw new RuntimeException("知识库已存在，kid=" + kid + "，请勿重复创建");
+            }
+        }
 
-        // 保存到数据库
+        // 构建新知识库
+        KnowledgeBase kb = new KnowledgeBase();
+        kb.setKid(kid);
+        kb.setUid(uid);
+        kb.setName(name);
+        kb.setTags(tags);
+        kb.setStatus(1);
+        kb.setDocumentCount(0);
+        kb.setCreatedTime(LocalDateTime.now());
+
+        // 插入并推进序列号
         knowledgeBaseMapper.insertKnowledgeBase(kb);
-
-        // 更新序列号
         knowledgeBaseMapper.upsertSequence(uid, nextNum + 1);
 
         return kb;
     }
 
-    public KnowledgeBase createKnowledgeBaseWithDescription(String uid,
-                                                            String name,
-                                                            List<String> tags,
-                                                   @NotNull String description) {
-        // 获取下一个知识库编号
+    public KnowledgeBase createKnowledgeBaseWithDescription(String uid, String name, List<String> tags, String description) {
         Integer nextNum = knowledgeBaseMapper.getNextKidNum(uid);
         if (nextNum == null) {
             nextNum = 1;
@@ -65,17 +84,38 @@ public class KnowledgeBaseService {
 
         String kid = "kb_" + nextNum;
 
-        // 创建知识库对象
-        KnowledgeBase kb = new KnowledgeBase(kid, uid, name, tags,description);
+        KnowledgeBase existing = knowledgeBaseMapper.findAnyByUidAndKid(uid, kid);
+        if (existing != null) {
+            if (existing.getStatus() == 0) {
+                existing.setName(name);
+                existing.setTags(tags);
+                existing.setDescription(description);
+                existing.setStatus(1);
+                existing.setCreatedTime(LocalDateTime.now());
+                existing.setDocumentCount(0);
+                knowledgeBaseMapper.recoverDeletedKnowledgeBase(existing);
+                return existing;
+            } else {
+                throw new RuntimeException("知识库已存在，kid=" + kid + "，请勿重复创建");
+            }
+        }
 
-        // 保存到数据库
+        KnowledgeBase kb = new KnowledgeBase();
+        kb.setKid(kid);
+        kb.setUid(uid);
+        kb.setName(name);
+        kb.setTags(tags);
+        kb.setDescription(description);
+        kb.setStatus(1);
+        kb.setDocumentCount(0);
+        kb.setCreatedTime(LocalDateTime.now());
+
         knowledgeBaseMapper.insertKnowledgeBase(kb);
-
-        // 更新序列号
         knowledgeBaseMapper.upsertSequence(uid, nextNum + 1);
 
         return kb;
     }
+
 
     /**
      * 获取用户的所有知识库及其详细信息
@@ -254,7 +294,7 @@ public class KnowledgeBaseService {
     public boolean testRedisConnection() {
         try {
             // 使用反射访问 RedisEmbeddingStore 中的 private final JedisPooled jedis
-            java.lang.reflect.Field jedisField = RedisEmbeddingStore.class.getDeclaredField("jedis");
+            Field jedisField = RedisEmbeddingStore.class.getDeclaredField("jedis");
             jedisField.setAccessible(true);
             redis.clients.jedis.JedisPooled jedis = (redis.clients.jedis.JedisPooled) jedisField.get(embeddingStore);
             String result = jedis.ping();

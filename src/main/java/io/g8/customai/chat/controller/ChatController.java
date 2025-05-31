@@ -1,14 +1,22 @@
 package io.g8.customai.chat.controller;
 
 import dev.langchain4j.community.model.dashscope.QwenStreamingChatModel;
+import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.message.*;
+import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.service.TokenStream;
+import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
+import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import io.g8.customai.chat.RedisChatMemoryStore;
 import io.g8.customai.chat.config.AiConfig;
 import io.g8.customai.chat.repository.ChatMemoryRepository;
 import io.g8.customai.common.security.jwt.JwtUtil;
+import io.g8.customai.common.security.utils.AuthValidationResult;
+import io.g8.customai.common.security.utils.Util;
+import io.g8.customai.knowledge.store.RedisEmbeddingStore;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -107,53 +115,6 @@ public class ChatController {
         return defaultValue;
     }
 
-    // 权限验证公共方法
-    private AuthValidationResult validateAuth(Map<String, Object> input, String authHeader) {
-        try {
-            // 1. 验证Authorization header格式
-            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-                return AuthValidationResult.error("Authorization header格式错误");
-            }
-
-            String token = authHeader.substring(7);
-            String tokenUid = jwtUtil.getUidFromToken(token);
-
-            // 2. 验证请求体中的uid
-            Object uidObj = input.get("uid");
-            if (uidObj == null) {
-                return AuthValidationResult.error("您没有在请求体传入uid");
-            }
-
-            String requestUid = uidObj.toString();
-
-            // 3. 检查JWT中的uid和请求uid是否匹配
-            if (!tokenUid.equals(requestUid)) {
-                String role = jwtUtil.getRoleFromToken(token);
-                if (!"ADMIN".equals(role)) {
-                    return AuthValidationResult.error("您的JWT和传入UID不匹配,且您的JWT显示您不是管理员,无权操作");
-                }
-            }
-
-            return AuthValidationResult.success(requestUid);
-
-        } catch (Exception e) {
-            log.error("权限验证失败", e);
-            return AuthValidationResult.error("JWT解析失败");
-        }
-    }
-
-    // 权限验证结果封装类
-    private record AuthValidationResult(boolean success, String uid, String errorMessage) {
-
-    public static AuthValidationResult success(String uid) {
-            return new AuthValidationResult(true, uid, null);
-        }
-
-        public static AuthValidationResult error(String errorMessage) {
-            return new AuthValidationResult(false, null, errorMessage);
-        }
-
-    }
     @Autowired
     private RedisChatMemoryStore chatMemoryStore;
     @Autowired
@@ -166,7 +127,7 @@ public class ChatController {
             @RequestHeader(value = "Authorization", required = true) String authHeader) {
 
         // 权限验证
-        AuthValidationResult authResult = validateAuth(input, authHeader);
+        AuthValidationResult authResult = Util.getUid(jwtUtil, authHeader,input);
         if (!authResult.success()) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(authResult.errorMessage());
         }
@@ -295,4 +256,75 @@ public class ChatController {
             return message.toString();
         }
     }
+
+    @Autowired
+    private EmbeddingModel embeddingModel;
+    @Autowired
+    private RedisEmbeddingStore embeddingStore;
+    @PostMapping(value = "/say", produces = "text/event-stream;charset=UTF-8")
+    public Flux<String> say(
+            @RequestBody(required = false) Map<String, Object> input,
+            @RequestHeader(value = "Authorization", required = true) String authHeader) {
+
+        // 参数提取和验证
+        String sessionId = extractAndValidate(input, "sessionId", "000001");
+        String msg = extractAndValidate(input, "msg", "你是谁");
+        String uid = jwtUtil.getUidFromToken(authHeader.substring(7));
+        String kid = (String) input.getOrDefault("kid", null); // 知识库ID，默认值
+
+        final String chatId = uid + "-" + sessionId;
+        final String finalMsg = msg;
+
+        log.info("开始知识增强流式对话, chatId: {}, 消息: {}, 知识库: {}", chatId, finalMsg, kid);
+
+        try {
+            // 1. 嵌入查询向量
+            Embedding queryEmbedding = embeddingModel.embed(msg).content();
+
+            // 2. 构建搜索请求
+            EmbeddingSearchRequest searchRequest = EmbeddingSearchRequest.builder()
+                    .queryEmbedding(queryEmbedding)
+                    .maxResults(3)
+                    .minScore(0.7)
+                    .build();
+
+            // 3. 查询知识库
+            if(kid!=null){
+
+            }
+            EmbeddingSearchResult<TextSegment> result = embeddingStore.searchForUser(uid, kid, searchRequest);
+
+            // 4. 提取上下文
+            List<String> contexts = result.matches().stream()
+                    .map(m -> m.embedded().text())
+                    .collect(Collectors.toList());
+
+            String context = String.join("\n", contexts);
+            String augmentedMsg = context.isEmpty()
+                    ? finalMsg
+                    : "根据以下知识回答问题：\n" + context + "\n\n问题：" + finalMsg;
+
+            // 5. 调用大模型生成响应流
+            TokenStream tokenStream = assistant.stream(chatId, augmentedMsg);
+
+            return Flux.create(sink -> {
+                tokenStream.onPartialResponse(sink::next)
+                        .onCompleteResponse(response -> {
+                            log.info("对话完成, chatId: {}", chatId);
+                            sink.complete();
+                        })
+                        .onError(error -> {
+                            log.error("对话出错, chatId: {}", chatId, error);
+                            sink.error(error);
+                        })
+                        .start();
+            });
+
+        } catch (Exception e) {
+            log.error("启动增强对话失败, chatId: {}", chatId, e);
+            return Flux.error(e);
+        }
+    }
+
+
 }
