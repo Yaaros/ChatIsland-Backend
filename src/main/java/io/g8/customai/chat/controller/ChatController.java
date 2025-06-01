@@ -16,7 +16,7 @@ import io.g8.customai.chat.repository.ChatMemoryRepository;
 import io.g8.customai.common.security.jwt.JwtUtil;
 import io.g8.customai.common.security.utils.AuthValidationResult;
 import io.g8.customai.common.security.utils.Util;
-import io.g8.customai.knowledge.store.RedisEmbeddingStore;
+import io.g8.customai.knowledge.deprecated.store.RedisEmbeddingStore;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

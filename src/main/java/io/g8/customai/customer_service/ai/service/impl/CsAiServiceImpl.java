@@ -8,10 +8,9 @@ import io.g8.customai.common.constants.KnowLedgeEnvs;
 import io.g8.customai.customer_service.ai.service.CsAiService;
 import io.g8.customai.customer_service.entity.CsInquiry;
 import io.g8.customai.customer_service.mapper.CsInquiryMapper;
-import io.g8.customai.knowledge.store.RedisEmbeddingStore;
+import io.g8.customai.knowledge.deprecated.store.RedisEmbeddingStore;
 import io.g8.customai.user.entity.User;
 import io.g8.customai.user.mapper.UserMapper;
-import org.apache.pdfbox.jbig2.image.FilterType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import dev.langchain4j.data.segment.TextSegment;
@@ -40,7 +39,7 @@ public class CsAiServiceImpl implements CsAiService {
         String kid = "kb_1";
         String uid = "1";
 
-        // 使用 KnowledgeBaseController 中的搜索逻辑
+        // 使用 KnowledgeBaseControllerOld 中的搜索逻辑
         Embedding queryEmbedding = embeddingModel.embed(message).content();
         EmbeddingSearchRequest searchRequest = EmbeddingSearchRequest.builder()
                 .queryEmbedding(queryEmbedding)

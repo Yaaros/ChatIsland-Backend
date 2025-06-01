@@ -86,3 +86,5 @@ langchain4j:
       api-key: ${DEEPSEEK_KEY}
       base-url: https://api.deepseek.com/v1/
       model-name: deepseek-chat
+
+

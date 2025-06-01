@@ -10,7 +10,7 @@ import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import io.g8.customai.common.security.jwt.JwtUtil;
-import io.g8.customai.knowledge.store.RedisEmbeddingStore;
+import io.g8.customai.knowledge.deprecated.store.RedisEmbeddingStore;
 import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
