@@ -9,5 +9,5 @@ public class KnowLedgeEnvs {
             "md","txt","xls","doc","docx","xlsx","csv","pdf",
             "java","cpp","c","cs","js","ts","vue","py","html","xml","yml","properties"
     );
-    public static final String MIN_SCORE = "0.1";
+    public static final String MIN_SCORE = "0.7";
 }

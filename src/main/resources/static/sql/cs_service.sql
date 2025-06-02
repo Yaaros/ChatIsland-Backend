@@ -7,3 +7,4 @@ CREATE TABLE cs_inquiry (
                             inquiry_time TIMESTAMP NOT NULL,
                             reply_time TIMESTAMP
 );
+ALTER TABLE cs_inquiry ADD COLUMN reply_history JSON;

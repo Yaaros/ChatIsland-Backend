@@ -16,5 +16,6 @@ public class CsInquiry {
     private String assignedCsUid;
     private LocalDateTime inquiryTime;
     private LocalDateTime replyTime;
+    private String replyHistory;
 
 }

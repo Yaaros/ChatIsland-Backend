@@ -1,17 +1,22 @@
 package io.g8.customai.knowledge.service;
+import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
+import dev.langchain4j.store.embedding.EmbeddingSearchResult;
+import dev.langchain4j.store.embedding.chroma.ChromaEmbeddingStore;
 import io.g8.customai.knowledge.entity.KnowledgeBase;
 import io.g8.customai.knowledge.entity.KnowledgeDocument;
 import io.g8.customai.knowledge.mapper.KnowledgeBaseMapper;
 import io.g8.customai.knowledge.mapper.KnowledgeDocumentMapper;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
-import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.filter.Filter;
 import dev.langchain4j.store.embedding.filter.comparison.IsEqualTo;
 import dev.langchain4j.store.embedding.filter.logical.And;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -27,7 +32,9 @@ public class RagService {
     private KnowledgeDocumentMapper knowledgeDocumentMapper;
 
     @Autowired
-    private EmbeddingStore<TextSegment> embeddingStore;
+    private ChromaEmbeddingStore embeddingStore;
+
+    private static final Logger log = LoggerFactory.getLogger(RagService.class);
 
     public KnowledgeBase createKnowledgeBase(String uid, String name, List<String> tags) {
         // 获取下一个 kid
@@ -311,6 +318,26 @@ public class RagService {
         }
     }
 
+    public EmbeddingSearchResult<TextSegment> searchForUser(String uid, String kid, EmbeddingSearchRequest request) {
+        // 验证知识库是否存在且属于该用户
+        if (!knowledgeBaseExists(uid, kid)) {
+            throw new RuntimeException("知识库不存在或无权限访问");
+        }
+
+        try {
+            // 直接搜索，因为这个collection只包含当前用户当前知识库的数据
+            EmbeddingSearchResult<TextSegment> result = embeddingStore.search(request);
+
+            log.info("知识库搜索完成, uid: {}, kid: {}, 找到结果数: {}",
+                    uid, kid, result.matches().size());
+            return result;
+
+        } catch (Exception e) {
+            log.error("知识库搜索失败, uid: {}, kid: {}, error: {}",
+                    uid, kid, e.getMessage(), e);
+            throw new RuntimeException("知识库搜索失败: " + e.getMessage(), e);
+        }
+    }
     /**
      * 检查知识库是否存在
      */

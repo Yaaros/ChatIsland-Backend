@@ -52,10 +52,6 @@ vip:
 logging:
   level:
 
-    io.g8.customai.user.controller: debug
-
-    io.g8.customai.user.service: debug
-
     # Mapper:MyBatis
     io.g8.customai.user.mapper: trace
 
@@ -86,5 +82,11 @@ langchain4j:
       api-key: ${DEEPSEEK_KEY}
       base-url: https://api.deepseek.com/v1/
       model-name: deepseek-chat
-
+customai:
+  kb:
+    chroma-collection: java-rag
+    chroma-url: http://localhost:8111
+    ollama-model-embed: bge-m3
+    ollama-url: http://localhost:11434
+  chat:
 

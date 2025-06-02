@@ -7,8 +7,13 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
-import io.g8.customai.chat.entity.ChatMemoryEntity;
-import io.g8.customai.chat.repository.ChatMemoryRepository;
+import io.g8.customai.chat.config.AiAssistantFactory;
+import io.g8.customai.chat.config.ChatType;
+import io.g8.customai.chat.config.NonIdAiAssistant;
+import io.g8.customai.chat.entity.Session;
+import io.g8.customai.chat.mapper.ChatMemoryMapper;
+import io.g8.customai.chat.service.SessionTitleInitService;
+import io.g8.customai.common.constants.SysEnvs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,60 +23,52 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 @Component
 public class RedisChatMemoryStore implements ChatMemoryStore {
-
     private final RedisTemplate<String, String> redisTemplate;
-
-    private final ChatMemoryRepository chatMemoryRepository;
-
+    private final ChatMemoryMapper chatMemoryMapper;
     private final ObjectMapper objectMapper;
+    private final SessionTitleInitService titleGenerator; // 使用专门的服务
+    private static final String REDIS_PREFIX = "chat_memory:";
+    private static final String ORIGINAL_PREFIX = "chat_original:";
+    private static final int REDIS_EXPIRE_HOURS = 24;
+    private static final Logger log = LoggerFactory.getLogger(RedisChatMemoryStore.class);
 
     @Autowired
     public RedisChatMemoryStore(
-            @Qualifier("ai-redis-config") RedisTemplate<String,String> redisTemplate,
-            ChatMemoryRepository chatMemoryRepository){
-        this.chatMemoryRepository = chatMemoryRepository;
+            @Qualifier("ai-redis-config") RedisTemplate<String, String> redisTemplate,
+            ChatMemoryMapper chatMemoryMapper,
+            SessionTitleInitService titleGenerator) {
         this.redisTemplate = redisTemplate;
+        this.chatMemoryMapper = chatMemoryMapper;
         this.objectMapper = new ObjectMapper();
+        this.titleGenerator = titleGenerator;
     }
-
-    private static final String REDIS_PREFIX = "chat_memory:";
-    private static final int REDIS_EXPIRE_HOURS = 24; // Redis缓存24小时
 
     @Override
     public List<ChatMessage> getMessages(Object memoryId) {
         String key = REDIS_PREFIX + memoryId.toString();
-
         try {
-            // 1. 先从Redis获取
             String redisValue = redisTemplate.opsForValue().get(key);
             if (redisValue != null) {
                 List<ChatMessage> messages = deserializeMessages(redisValue);
                 log.info("从Redis获取聊天记录, memoryId: {}, 消息数量: {}", memoryId, messages.size());
                 return messages;
             }
-
-            // 2. Redis没有，从数据库获取
-            Optional<ChatMemoryEntity> entityOpt = chatMemoryRepository.findById(memoryId.toString());
+            Optional<Session> entityOpt = chatMemoryMapper.findById(memoryId.toString());
             if (entityOpt.isPresent()) {
                 String messagesJson = entityOpt.get().getMessages();
                 List<ChatMessage> messages = deserializeMessages(messagesJson);
-
-                // 3. 加载到Redis缓存
                 redisTemplate.opsForValue().set(key, messagesJson, Duration.ofHours(REDIS_EXPIRE_HOURS));
-
                 log.info("从数据库获取聊天记录并缓存到Redis, memoryId: {}, 消息数量: {}", memoryId, messages.size());
                 return messages;
             }
-
             log.info("未找到聊天记录, memoryId: {}", memoryId);
             return new ArrayList<>();
-
         } catch (Exception e) {
             log.error("获取聊天记录失败, memoryId: {}", memoryId, e);
             return new ArrayList<>();
@@ -81,31 +78,22 @@ public class RedisChatMemoryStore implements ChatMemoryStore {
     @Override
     public void updateMessages(Object memoryId, List<ChatMessage> messages) {
         String key = REDIS_PREFIX + memoryId.toString();
-
         try {
             String messagesJson = serializeMessages(messages);
-
-            // 1. 先更新Redis
             redisTemplate.opsForValue().set(key, messagesJson, Duration.ofHours(REDIS_EXPIRE_HOURS));
 
-            // 2. 异步更新数据库
-            CompletableFuture.runAsync(() -> {
-                try {
-                    ChatMemoryEntity entity = chatMemoryRepository.findById(memoryId.toString())
-                            .orElse(new ChatMemoryEntity(memoryId.toString(), messagesJson));
+            Session entity = chatMemoryMapper.findById(memoryId.toString())
+                    .orElse(new Session(memoryId.toString(), messagesJson));
+            entity.setMessages(messagesJson);
+            entity.setUpdatedTime(LocalDateTime.now());
 
-                    entity.setMessages(messagesJson);
-                    entity.setUpdatedTime(LocalDateTime.now());
-
-                    chatMemoryRepository.save(entity);
-                    log.info("数据库聊天记录更新成功, memoryId: {}, 消息数量: {}", memoryId, messages.size());
-                } catch (Exception e) {
-                    log.error("数据库聊天记录更新失败, memoryId: {}", memoryId, e);
-                }
-            });
-
-            log.info("Redis聊天记录更新成功, memoryId: {}, 消息数量: {}", memoryId, messages.size());
-
+            // 如果会话名称为空，尝试生成名称
+            if (entity.getName() == null || entity.getName().isEmpty()) {
+                String name = titleGenerator.generateSessionTitle(messages.getFirst());
+                entity.setName(name);
+            }
+            chatMemoryMapper.save(entity);
+            log.info("数据库聊天记录更新成功, memoryId: {}, 消息数量: {}", memoryId, messages.size());
         } catch (Exception e) {
             log.error("更新聊天记录失败, memoryId: {}", memoryId, e);
         }
@@ -114,21 +102,40 @@ public class RedisChatMemoryStore implements ChatMemoryStore {
     @Override
     public void deleteMessages(Object memoryId) {
         String key = REDIS_PREFIX + memoryId.toString();
-
+        String originalKey = ORIGINAL_PREFIX + memoryId.toString();
         try {
-            // 1. 删除Redis缓存
             redisTemplate.delete(key);
-
-            // 2. 删除数据库记录
-            chatMemoryRepository.deleteById(memoryId.toString());
-
+            redisTemplate.delete(originalKey); // 删除原始消息
+            chatMemoryMapper.deleteById(memoryId.toString());
             log.info("删除聊天记录成功, memoryId: {}", memoryId);
         } catch (Exception e) {
             log.error("删除聊天记录失败, memoryId: {}", memoryId, e);
         }
     }
 
-    // 序列化ChatMessage列表
+    public void createNewSession(String chatId) {
+        Session session = new Session(chatId, "[]");
+        session.setName(""); // 初始名称为空
+        chatMemoryMapper.save(session);
+        redisTemplate.opsForValue().set(REDIS_PREFIX + chatId, "[]", Duration.ofHours(REDIS_EXPIRE_HOURS));
+        log.info("初始化新会话存储, chatId: {}", chatId);
+    }
+
+    private String generateDefaultSessionName(String message) {
+        if (message == null || message.trim().isEmpty()) {
+            return "会话 " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+        }
+        String cleanedText = message.replaceAll("[^\\p{L}\\p{N}\\s]", "").trim();
+        if (cleanedText.length() > 30) {
+            cleanedText = cleanedText.substring(0, 30);
+        }
+        return switch (cleanedText.toLowerCase()) {
+            case String s when s.contains("工期") || s.contains("项目") -> "项目工期讨论";
+            case String s when s.contains("技术栈") || s.contains("技术") -> "技术栈讨论";
+            default -> cleanedText.isEmpty() ? "会话 " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) : cleanedText;
+        };
+    }
+
     private String serializeMessages(List<ChatMessage> messages) throws Exception {
         List<Map<String, Object>> messageData = messages.stream()
                 .map(this::chatMessageToMap)
@@ -136,30 +143,35 @@ public class RedisChatMemoryStore implements ChatMemoryStore {
         return objectMapper.writeValueAsString(messageData);
     }
 
-    // 反序列化ChatMessage列表
     private List<ChatMessage> deserializeMessages(String json) throws Exception {
-        List<Map<String, Object>> messageData = objectMapper.readValue(json,
-                new TypeReference<>() {
-                });
-
+        List<Map<String, Object>> messageData = objectMapper.readValue(json, new TypeReference<>() {});
         return messageData.stream()
                 .map(this::mapToChatMessage)
                 .collect(Collectors.toList());
     }
 
-    // ChatMessage转Map
     private Map<String, Object> chatMessageToMap(ChatMessage message) {
         Map<String, Object> map = new HashMap<>();
         map.put("type", message.type().toString());
-        map.put("text", message.toString());
+        String text = extractMessageText(message);
+        map.put("text", text);
         return map;
     }
 
-    // Map转ChatMessage
+    private String extractMessageText(ChatMessage message) {
+        if (message instanceof UserMessage userMsg) {
+            return userMsg.singleText();
+        } else if (message instanceof AiMessage aiMsg) {
+            return aiMsg.text();
+        } else if (message instanceof SystemMessage sysMsg) {
+            return sysMsg.text();
+        }
+        return "";
+    }
+
     private ChatMessage mapToChatMessage(Map<String, Object> map) {
         String type = (String) map.get("type");
         String text = (String) map.get("text");
-
         return switch (type) {
             case "USER" -> UserMessage.from(text);
             case "AI" -> AiMessage.from(text);
@@ -167,6 +179,4 @@ public class RedisChatMemoryStore implements ChatMemoryStore {
             default -> throw new IllegalArgumentException("Unknown message type: " + type);
         };
     }
-
-    private static final Logger log = LoggerFactory.getLogger(RedisChatMemoryStore.class);
 }
