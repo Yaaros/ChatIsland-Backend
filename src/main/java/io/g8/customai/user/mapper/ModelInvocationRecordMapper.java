@@ -24,7 +24,10 @@ public interface ModelInvocationRecordMapper {
      * 获取用户当天的调用次数
      */
     @Select("SELECT COUNT(*) FROM model_invocation_record " +
-            "WHERE uid = #{uid} AND DATE(invocation_time) = CURDATE() AND success = true")
+            "WHERE uid = #{uid} " +
+            "AND invocation_time >= UTC_DATE() " +
+            "AND invocation_time < DATE_ADD(UTC_DATE(), INTERVAL 1 DAY) " +
+            "AND success = true")
     int countTodayInvocations(String uid);
 
     /**

@@ -35,19 +35,37 @@ public class UserQuotaController {
     @PostMapping("/upgrade-vip")
     public ResponseEntity<?> upgradeToVip(
             @RequestHeader("Authorization") String authHeader,
-            @RequestParam String name,
+            @RequestParam(required = false) String name,
             @RequestBody Map<String, String> request) {
-        if(request.get("name")!=null){
+        if(name==null){
             name = request.get("name");
         }
         String uid = jwtUtil.getUidFromParamOrJwt(name, userService, authHeader);
         String vipKey = request.get("vipKey");
+        String durationStr = request.get("duration");
+
         if (vipKey == null || vipKey.isEmpty()) {
             return ResponseEntity.badRequest()
                     .body(Map.of("message", "VIP密钥不能为空"));
         }
+
+        // 解析天数，默认30天
+        int duration = 30;
+        if (durationStr != null && !durationStr.isEmpty()) {
+            try {
+                duration = Integer.parseInt(durationStr);
+                if (duration <= 0) {
+                    return ResponseEntity.badRequest()
+                            .body(Map.of("message", "VIP天数必须大于0"));
+                }
+            } catch (NumberFormatException e) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("message", "VIP天数格式无效"));
+            }
+        }
+
         try {
-            boolean success = userQuotaService.upgradeToVip(uid, vipKey);
+            boolean success = userQuotaService.upgradeToVip(uid, vipKey, duration);
             if (!success) {
                 return ResponseEntity.badRequest()
                         .body(Map.of("message", "升级失败，请检查VIP密钥或您的账号状态"));
@@ -64,6 +82,7 @@ public class UserQuotaController {
             response.put("dailyLimit", userInfo.dailyLimit());
             response.put("vipStartTime", userInfo.vipStartTime());
             response.put("vipEndTime", userInfo.vipEndTime());
+            response.put("duration", duration);
 
             return ResponseEntity.ok(response);
         } catch (Exception e) {
@@ -79,17 +98,37 @@ public class UserQuotaController {
     @PostMapping("/renew-vip")
     public ResponseEntity<?> renewVip(
             @RequestHeader("Authorization") String authHeader,
-            @RequestParam String name,
+            @RequestParam(required = false) String name,
             @RequestBody Map<String, String> request) {
+        if(name==null){
+            name = request.get("name");
+        }
         String uid = jwtUtil.getUidFromParamOrJwt(name, userService, authHeader);
         String vipKey = request.get("vipKey");
+        String durationStr = request.get("duration");
+
         if (vipKey == null || vipKey.isEmpty()) {
             return ResponseEntity.badRequest()
                     .body(Map.of("message", "VIP密钥不能为空"));
         }
 
+        // 解析天数，默认30天
+        int duration = 30;
+        if (durationStr != null && !durationStr.isEmpty()) {
+            try {
+                duration = Integer.parseInt(durationStr);
+                if (duration <= 0) {
+                    return ResponseEntity.badRequest()
+                            .body(Map.of("message", "VIP天数必须大于0"));
+                }
+            } catch (NumberFormatException e) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("message", "VIP天数格式无效"));
+            }
+        }
+
         try {
-            boolean success = userQuotaService.renewVip(uid, vipKey);
+            boolean success = userQuotaService.renewVip(uid, vipKey, duration);
             if (!success) {
                 return ResponseEntity.badRequest()
                         .body(Map.of("message", "续费失败，请检查VIP密钥或您的账号状态"));
@@ -102,6 +141,7 @@ public class UserQuotaController {
             response.put("success", true);
             response.put("message", "VIP续费成功");
             response.put("newVipEndTime", userInfo.vipEndTime());
+            response.put("duration", duration);
 
             return ResponseEntity.ok(response);
         } catch (Exception e) {
@@ -110,34 +150,5 @@ public class UserQuotaController {
                     .body(Map.of("message", "VIP续费过程中发生错误"));
         }
     }
-
-    /**
-     * 管理员强制降级VIP用户
-     */
-    @PostMapping("/admin/vip-remove")
-    public ResponseEntity<?> removeVipByAdmin(
-            @RequestHeader("Authorization") String authHeader,
-            @RequestBody Map<String, String> request) {
-        String adminUid = jwtUtil.getUidFromParamOrJwt(null, userService, authHeader);
-        String targetUsername = request.get("toRemove");
-        String reason = request.get("reason");
-
-        if (targetUsername == null || targetUsername.isEmpty()) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("message", "目标用户名不能为空"));
-        }
-        if (reason == null || reason.isEmpty()) {
-            reason = "管理员操作，无具体原因";
-        }
-        boolean success = userQuotaService.removeVipByAdmin(adminUid, targetUsername, reason);
-        if (success) {
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "已成功将用户 " + targetUsername + " 降级为普通用户"
-            ));
-        } else {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of("message", "操作失败，请检查您的权限或目标用户状态"));
-        }
-    }
+    // 删除 admin/vip-remove
 }

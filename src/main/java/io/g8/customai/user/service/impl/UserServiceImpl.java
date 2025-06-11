@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Date;
+import java.util.List;
 
 @Service
 public class UserServiceImpl implements UserService {
@@ -109,5 +110,10 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public boolean deleteUser(String uid) {
         return userMapper.delete(uid) > 0;
+    }
+
+    @Override
+    public List<User> findByCategory(User.Category category) {
+        return userMapper.findByType(category);
     }
 }

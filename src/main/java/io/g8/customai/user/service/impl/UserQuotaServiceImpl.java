@@ -99,7 +99,7 @@ public class UserQuotaServiceImpl implements UserQuotaService {
 
     @Override
     @Transactional
-    public boolean upgradeToVip(String uid, String vipKey) {
+    public boolean upgradeToVip(String uid, String vipKey, int duration) {
         // 验证VIP密钥
         if (!vipAuthKey.equals(vipKey)) {
             logger.warn("用户 {} VIP升级请求使用了无效的VIP密钥", uid);
@@ -122,16 +122,16 @@ public class UserQuotaServiceImpl implements UserQuotaService {
         boolean updated = userService.updateUser(user);
 
         if (updated) {
-            // 设置VIP结束时间（一个月后）
+            // 设置VIP结束时间（指定天数后）
             Calendar calendar = Calendar.getInstance();
-            calendar.add(Calendar.MONTH, 1);
+            calendar.add(Calendar.DAY_OF_MONTH, duration);
             Date endTime = calendar.getTime();
 
             // 创建并保存VIP记录
             VipChangeRecord record = VipChangeRecord.createGrantRecord(uid, endTime);
             vipRecordMapper.insert(record);
 
-            logger.info("用户 {} 成功升级到VIP，有效期至: {}", uid, endTime);
+            logger.info("用户 {} 成功升级到VIP，有效期至: {}，天数: {}", uid, endTime, duration);
             return true;
         }
 
@@ -140,7 +140,7 @@ public class UserQuotaServiceImpl implements UserQuotaService {
 
     @Override
     @Transactional
-    public boolean renewVip(String uid, String vipKey) {
+    public boolean renewVip(String uid, String vipKey, int duration) {
         // 验证VIP密钥
         if (!vipAuthKey.equals(vipKey)) {
             logger.warn("用户 {} VIP续费请求使用了无效的VIP密钥", uid);
@@ -160,13 +160,17 @@ public class UserQuotaServiceImpl implements UserQuotaService {
 
         // 获取当前VIP记录
         VipChangeRecord currentVip = vipRecordMapper.findLatestActiveByUid(uid);
-
-        // 设置新的VIP结束时间（从当前结束时间再延长一个月）
         Calendar calendar = Calendar.getInstance();
-        if (currentVip != null && currentVip.getEndTime() != null) {
+        Date now = new Date();
+
+        // 如果当前 VIP 仍在有效期内，从原 endTime 延期；否则从当前时间延期
+        if (currentVip != null && currentVip.getEndTime() != null && currentVip.getEndTime().after(now)) {
             calendar.setTime(currentVip.getEndTime());
+        } else {
+            calendar.setTime(now);
         }
-        calendar.add(Calendar.MONTH, 1);
+
+        calendar.add(Calendar.DAY_OF_MONTH, duration);
         Date newEndTime = calendar.getTime();
 
         // 停用所有现有的VIP记录
@@ -177,9 +181,10 @@ public class UserQuotaServiceImpl implements UserQuotaService {
         record.setReason("VIP Renewed");
         vipRecordMapper.insert(record);
 
-        logger.info("用户 {} 成功续费VIP，新的有效期至: {}", uid, newEndTime);
+        logger.info("用户 {} 成功续费VIP，新的有效期至: {}，续费天数: {}", uid, newEndTime, duration);
         return true;
     }
+
 
     @Override
     @Transactional

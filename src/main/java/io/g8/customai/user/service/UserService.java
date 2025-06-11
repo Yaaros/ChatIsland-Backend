@@ -2,6 +2,8 @@ package io.g8.customai.user.service;
 
 import io.g8.customai.user.entity.User;
 
+import java.util.List;
+
 public interface UserService {
 
     /**
@@ -46,6 +48,8 @@ public interface UserService {
      * @return 成功返回true，失败返回false
      */
     boolean deleteUser(String uid);
+
+    List<User> findByCategory(User.Category category);
 }
 /*
 public interface UserService {

@@ -38,7 +38,7 @@ public interface UserQuotaService {
      * @param vipKey VIP密钥
      * @return 是否升级成功
      */
-    boolean upgradeToVip(String uid, String vipKey);
+    boolean upgradeToVip(String uid, String vipKey,int duration);
 
     /**
      * 续费VIP
@@ -46,7 +46,7 @@ public interface UserQuotaService {
      * @param vipKey VIP密钥
      * @return 是否续费成功
      */
-    boolean renewVip(String uid, String vipKey);
+    boolean renewVip(String uid, String vipKey,int duration);
 
     /**
      * 管理员移除VIP权限

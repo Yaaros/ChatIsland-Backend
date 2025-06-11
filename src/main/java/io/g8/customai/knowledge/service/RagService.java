@@ -1,4 +1,7 @@
 package io.g8.customai.knowledge.service;
+import dev.langchain4j.rag.content.retriever.ContentRetriever;
+import dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever;
+import dev.langchain4j.rag.query.Query;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.chroma.ChromaEmbeddingStore;
@@ -327,7 +330,6 @@ public class RagService {
         try {
             // 直接搜索，因为这个collection只包含当前用户当前知识库的数据
             EmbeddingSearchResult<TextSegment> result = embeddingStore.search(request);
-
             log.info("知识库搜索完成, uid: {}, kid: {}, 找到结果数: {}",
                     uid, kid, result.matches().size());
             return result;

@@ -14,7 +14,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/help")
-public class CsAiController {
+public class CsController {
 
     @Autowired private CsUsService csUsService;
     @Autowired private CsPsService csPsService;
@@ -62,9 +62,9 @@ public class CsAiController {
         String csUid = input.getOrDefault("csUid",jwtUtil.getUidFromToken(token.substring(7)));
         String inquiryId = input.getOrDefault("inquiryId", null);
         String replyMsg = input.getOrDefault("replyMsg", null);
-        if (csUid == null  || csUid.trim().isEmpty()
-          ||inquiryId==null||inquiryId.trim().isEmpty()
-          ||replyMsg==null ||replyMsg.trim().isEmpty()) {
+        if (csUid    == null || csUid.trim().isEmpty()
+          ||inquiryId== null || inquiryId.trim().isEmpty()
+          ||replyMsg == null ||  replyMsg.trim().isEmpty()){
             return ResponseEntity.badRequest().body(Map.of("error", "客服id,查询id,客服回复至少存在一个NULL"));
         }
         if (csPsService.completeInquiry(csUid, inquiryId, replyMsg)) {

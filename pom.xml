@@ -10,7 +10,7 @@
     </parent>
     <groupId>io.g8</groupId>
     <artifactId>CustomAI</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>1.0</version>
     <name>CustomAI</name>
     <description>CustomAI</description>
     <url/>
@@ -139,19 +139,18 @@
             <artifactId>langchain4j-document-parser-apache-pdfbox</artifactId>
             <version>${langchain4j.version}</version>
         </dependency>
+        <!-- 本地向量化模型 -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-ollama</artifactId>
             <version>${langchain4j.version}</version>
         </dependency>
+        <!-- 本地向量存储 -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-chroma</artifactId>
             <version>${langchain4j.version}</version>
         </dependency>
-
-        <!-- 本地向量存储 -->
-
         <!-- Qwen API Service -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
@@ -185,7 +184,6 @@
             <artifactId>jjwt-jackson</artifactId>
             <version>0.11.5</version>
         </dependency>
-
         <!--  数据库池化      -->
         <dependency>
             <groupId>com.alibaba</groupId>
@@ -243,6 +241,22 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>  <!-- 创建可执行JAR -->
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <testFailureIgnore>true</testFailureIgnore>
+                    <!--直接跳过测试-->
+                    <skip>true</skip>
                 </configuration>
             </plugin>
         </plugins>

@@ -85,7 +85,7 @@ public interface ChatMemoryMapper {
         if (sessionIds.isEmpty()) {
             return "000001";
         }
-
+        System.out.println("sessionIds:"+sessionIds);
         // 找出最大的数字会话ID
         int maxId = sessionIds.stream()
                 .filter(id -> id.matches("\\d+"))  // 只处理纯数字ID
@@ -107,7 +107,7 @@ public interface ChatMemoryMapper {
     /**
      * 获取用户最近的N个会话（按最后更新时间排序）
      */
-    @Select("SELECT SUBSTRING(memory_id, LOCATE('-', memory_id) + 1) as session_id, " +
+    @Select("SELECT SUBSTRING(memory_id, LOCATE('-', memory_id) + 1), " +
             "session_name, " +
             "updated_time, " +
             "CASE " +
@@ -119,7 +119,6 @@ public interface ChatMemoryMapper {
             "ORDER BY updated_time DESC " +
             "LIMIT #{limit}")
     @Results({
-            @Result(property = "sessionId", column = "session_id"),
             @Result(property = "name", column = "session_name"),
             @Result(property = "updatedTime", column = "updated_time"),
             @Result(property = "messageCount", column = "message_count")
